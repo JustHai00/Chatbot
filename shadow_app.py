@@ -1,8 +1,9 @@
 # ==================================================
-# 🌑 SHADOW — Desktop App (chat look)
+# 🌑 SHADOW — Desktop App (chat look) v1.1
 # Run with Launch_Shadow_App.bat
 # ==================================================
 
+import time
 import threading
 import customtkinter as ctk
 from tkinter import filedialog
@@ -18,6 +19,7 @@ READY = "Enter = send, Shift+Enter = new line"
 
 history = []
 file_context = {"text": "", "name": ""}
+busy = {"on": False, "label": "", "t0": 0.0}
 
 
 def add_bubble(text, who="ai"):
@@ -38,26 +40,43 @@ def add_bubble(text, who="ai"):
     chat_frame._parent_canvas.yview_moveto(1.0)
 
 
-def set_busy(busy):
-    send_btn.configure(state="disabled" if busy else "normal",
-                       text="⏳ ..." if busy else "🚀 Send")
+def tick():
+    """Show a live timer so you know it is still working."""
+    if busy["on"]:
+        secs = int(time.time() - busy["t0"])
+        status.configure(text=f"{busy['label']}  ⏱ {secs}s  (first answer can be slow)")
+        app.after(1000, tick)
+
+
+def set_busy(on):
+    busy["on"] = on
+    if on:
+        busy["t0"] = time.time()
+        busy["label"] = "Starting..."
+        tick()
+    else:
+        status.configure(text=READY)
+    send_btn.configure(state="disabled" if on else "normal",
+                       text="⏳ ..." if on else "🚀 Send")
+
+
+def set_label(s):
+    busy["label"] = s
 
 
 def worker(user_text):
-    ui = lambda fn, *a, **k: app.after(0, lambda: fn(*a, **k))
     answer = ask_team(user_text, history=list(history),
                       file_context=file_context["text"],
-                      on_status=lambda s: ui(status.configure, text=s))
+                      on_status=lambda s: app.after(0, set_label, s))
     history.append({"role": "user", "content": user_text})
     history.append({"role": "assistant", "content": answer})
-    ui(add_bubble, f"🐬 Dola\n{answer}", "ai")
-    ui(status.configure, text=READY)
-    ui(set_busy, False)
+    app.after(0, add_bubble, f"🐬 Dola\n{answer}", "ai")
+    app.after(0, set_busy, False)
 
 
 def send(event=None):
     text = input_box.get("1.0", "end").strip()
-    if not text or send_btn.cget("state") == "disabled":
+    if not text or busy["on"]:
         return "break"
     input_box.delete("1.0", "end")
     if detect_injection(text):

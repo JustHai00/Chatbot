@@ -1,0 +1,5 @@
+streamlit
+customtkinter
+requests
+PyPDF2
+python-docx

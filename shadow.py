@@ -1,143 +1,87 @@
 # ==================================================
-# 🔒 SHADOW — SECURITY MODULE v1.0
-# All safety checks, validation, protection logic here
-# For YOUR Personal Use Only — No sharing
+# 🌑 SHADOW — Website version (Streamlit)
+# Run with Launch_SHADOW.bat  -> http://localhost:8501
 # ==================================================
 
-import re
-import os
-import uuid
+import streamlit as st
 from pathlib import Path
 
-# ──────────────────────────────────────────────────
-# ⚙️ SAFETY SETTINGS — Tune these as you need
-# ──────────────────────────────────────────────────
-SAFETY_CONFIG = {
-    "max_file_size_mb": 10,
-    "max_total_size_mb": 50,
-    "allowed_extensions": {
-        "txt", "md", "py", "c", "cpp", "h", "js", "html", "css", "json",
-        "xml", "csv", "pdf", "docx", "xlsx", "zip", "tar", "gz"
-    },
-    "upload_dir": "shadow_uploads",
-    "injection_patterns": [
-        r"ignore\s+(all\s+)?previous",
-        r"disregard\s+.*instructions",
-        r"you\s+are\s+now",
-        r"system:\s*prompt",
-        r"override.*rule",
-        r"forget\s+.*everything",
-        r"change\s+your\s+role",
-        r"new\s+persona",
-        r"bypass\s+restriction",
-    ],
-}
+from security import (detect_injection, read_file_safe, sanitize_filename,
+                      validate_uploaded_file, SAFETY_CONFIG)
+from shadow_core import ask_team, ollama_online, get_installed_models, AI_TEAM, resolve_model
 
-# Auto-create upload folder
-os.makedirs(SAFETY_CONFIG["upload_dir"], exist_ok=True)
+st.set_page_config(page_title="SHADOW", page_icon="🌑", layout="centered")
 
-# ──────────────────────────────────────────────────
-# 🧹 File Name & Path Protection
-# ──────────────────────────────────────────────────
-def sanitize_filename(filename: str) -> str:
-    """Block path traversal & dangerous characters"""
-    # Remove any folder paths from name
-    base_name = os.path.basename(filename)
-    # Keep only safe characters
-    safe_name = re.sub(r'[^\w.\-+ ]', '_', base_name)
-    # Add unique ID to prevent overwrites & collisions
-    ext = Path(safe_name).suffix.lower()
-    unique_name = f"{uuid.uuid4().hex}{ext}"
-    return unique_name
+# ─── Session state ───
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        {"role": "assistant",
+         "content": "🐬 Hi! SHADOW is ready. Ask me anything — I check with the team and pick the best answer."}
+    ]
+if "file_context" not in st.session_state:
+    st.session_state.file_context = ""
+if "seen_files" not in st.session_state:
+    st.session_state.seen_files = set()
 
-# ──────────────────────────────────────────────────
-# ✅ File Validation
-# ──────────────────────────────────────────────────
-def validate_uploaded_file(file) -> tuple[bool, str]:
-    """Check file size, type, and total storage limit"""
-    # 1. Check single file size
-    max_bytes = SAFETY_CONFIG["max_file_size_mb"] * 1024 * 1024
-    if file.size > max_bytes:
-        return False, f"❌ {file.name} too big — max {SAFETY_CONFIG['max_file_size_mb']}MB"
-    
-    # 2. Check file type
-    ext = Path(file.name).suffix.lower().lstrip('.')
-    if ext and ext not in SAFETY_CONFIG["allowed_extensions"]:
-        return False, f"❌ .{ext} files not allowed"
-    
-    # 3. Check total folder size
-    total_bytes = 0
-    for f in Path(SAFETY_CONFIG["upload_dir"]).glob("**/*"):
-        if f.is_file():
-            total_bytes += f.stat().st_size
-    if total_bytes + file.size > SAFETY_CONFIG["max_total_size_mb"] * 1024 * 1024:
-        return False, "❌ Storage full — delete old files first"
-    
-    return True, "OK"
+# ─── Sidebar ───
+with st.sidebar:
+    st.title("🌑 SHADOW")
+    online = ollama_online()
+    if online:
+        st.success("Ollama: online ✅")
+        installed = get_installed_models(refresh=True)
+        with st.expander("Models"):
+            for key, ai in AI_TEAM.items():
+                st.write(f"{ai['name']} → `{resolve_model(ai['want'])}`")
+            st.caption("Installed: " + (", ".join(installed) or "none"))
+    else:
+        st.error("Ollama: offline ❌\nOpen a terminal and run: ollama serve")
 
-# ──────────────────────────────────────────────────
-# 🛡️ Prompt Injection Detection
-# ──────────────────────────────────────────────────
-def detect_injection(text: str) -> bool:
-    """Check if someone/something tries to override rules"""
-    text_lower = text.lower()
-    for pattern in SAFETY_CONFIG["injection_patterns"]:
-        if re.search(pattern, text_lower):
-            return True
-    return False
-
-# ──────────────────────────────────────────────────
-# 📂 Safe File Reader
-# ──────────────────────────────────────────────────
-def read_file_safe(file_path: str | Path, max_chars: int = 30000) -> str:
-    """Read files safely with limits & warning for suspicious content"""
-    path = Path(file_path)
-    suffix = path.suffix.lower()
-    
-    try:
-        content = ""
-        if suffix in [".txt", ".md", ".py", ".c", ".cpp", ".h", ".js", ".html", ".css", ".json", ".xml"]:
-            content = path.read_text(encoding="utf-8", errors="ignore")[:max_chars]
-        elif suffix == ".pdf":
-            try:
-                import PyPDF2
-                text = ""
-                with open(path, "rb") as f:
-                    reader = PyPDF2.PdfReader(f)
-                    for page in reader.pages[:30]:
-                        text += page.extract_text() or ""
-                content = text[:max_chars]
-            except ImportError:
-                content = "📄 PDF — install PyPDF2 to read full content"
-        elif suffix == ".docx":
-            try:
-                from docx import Document
-                doc = Document(path)
-                content = "\n".join(p.text for p in doc.paragraphs)[:max_chars]
-            except ImportError:
-                content = "📘 DOCX — install python-docx to read full content"
-        elif suffix in [".csv", ".xlsx", ".zip", ".tar", ".gz"]:
-            content = f"✅ {path.name} — attached & accessible"
+    st.divider()
+    st.subheader("📎 Attach a file")
+    up = st.file_uploader("Max %d MB" % SAFETY_CONFIG["max_file_size_mb"],
+                          type=sorted(SAFETY_CONFIG["allowed_extensions"]))
+    if up is not None and up.file_id not in st.session_state.seen_files:
+        ok, msg = validate_uploaded_file(up)
+        if not ok:
+            st.error(msg)
         else:
-            content = f"✅ {path.name} — attached"
-        
-        # Warn if injection detected in file
-        if detect_injection(content):
-            content = "⚠️ SUSPICIOUS CONTENT DETECTED — processed with protection\n" + content[:5000]
-        
-        return content
-    
-    except Exception as e:
-        return f"⚠️ Read error: {str(e)[:100]}"
+            save_path = Path(SAFETY_CONFIG["upload_dir"]) / sanitize_filename(up.name)
+            save_path.write_bytes(up.getbuffer())
+            st.session_state.file_context = f"File: {up.name}\n" + read_file_safe(save_path)
+            st.session_state.seen_files.add(up.file_id)
+            st.success(f"Attached: {up.name}")
+    if st.session_state.file_context:
+        if st.button("Remove file"):
+            st.session_state.file_context = ""
+            st.rerun()
 
-# ──────────────────────────────────────────────────
-# 🔑 Final Security Summary
-# ──────────────────────────────────────────────────
-def get_security_status() -> dict:
-    """Return status for display in UI"""
-    return {
-        "ollama_locked": True,  # Set False if you change OLLAMA_HOST
-        "max_file_mb": SAFETY_CONFIG["max_file_size_mb"],
-        "injection_protection": True,
-        "secrets_loaded": True,
-    }
+    if st.button("🧹 Clear chat"):
+        st.session_state.messages = st.session_state.messages[:1]
+        st.rerun()
+
+# ─── Chat history ───
+st.title("🌑 SHADOW")
+for m in st.session_state.messages:
+    with st.chat_message(m["role"]):
+        st.markdown(m["content"])
+
+# ─── New message ───
+prompt = st.chat_input("Ask SHADOW...")
+if prompt:
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    with st.chat_message("assistant"):
+        if detect_injection(prompt):
+            st.warning("⚠️ Suspicious input — processed with protection")
+        with st.status("Thinking...", expanded=False) as status:
+            history = [{"role": m["role"], "content": m["content"]}
+                       for m in st.session_state.messages[1:-1]]
+            answer = ask_team(prompt, history=history,
+                              file_context=st.session_state.file_context,
+                              on_status=lambda s: status.update(label=s))
+            status.update(label="Done ✅", state="complete")
+        st.markdown(answer)
+    st.session_state.messages.append({"role": "assistant", "content": answer})

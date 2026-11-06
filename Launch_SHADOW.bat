@@ -18,7 +18,7 @@ if errorlevel 1 (
 )
 
 :: Launch SHADOW with your Python path
-"C:\Users\sin hu hai\AppData\Local\Python\pythoncore-3.14-64\python.exe" -m streamlit run shadow.py --server.headless true
+"C:\Users\sin hu hai\AppData\Local\Python\pythoncore-3.14-64\python.exe" -m streamlit run shadow.py --server.headless false
 
 if errorlevel 1 (
     echo.
